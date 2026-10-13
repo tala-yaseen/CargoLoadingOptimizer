@@ -1,0 +1,11 @@
+# Every experiment starts from `defaults` and overrides only what differs.
+
+defaults:
+  method: cpsat              # cpsat | greedy
+  capacity: 1000             # kg
+
+experiments:
+  part1: {}
+
+  part1_greedy:
+    method: greedy
