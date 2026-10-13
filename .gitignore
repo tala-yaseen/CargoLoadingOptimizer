@@ -1,0 +1,15 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+
+# macOS
+.DS_Store
+
+# Project brief (kept out of the repo)
+*.pdf
