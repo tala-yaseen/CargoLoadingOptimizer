@@ -13,3 +13,7 @@ __pycache__/
 
 # Project brief (kept out of the repo)
 *.pdf
+
+# Experiment run outputs (kept locally, not committed)
+results/*
+!results/.gitkeep
