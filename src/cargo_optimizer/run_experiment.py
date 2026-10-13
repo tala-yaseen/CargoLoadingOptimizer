@@ -10,9 +10,9 @@ from pathlib import Path
 import yaml
 from ortools.sat.python import cp_model
 
-from cargo_optimizer.config import ExperimentConfig, load_experiments
+from cargo_optimizer.config import ExperimentConfig, Method, load_experiments
 from cargo_optimizer.data import Package, load_packages
-from cargo_optimizer.greedy import solve_greedy
+from cargo_optimizer.greedy import solve_greedy, unsupported_settings
 from cargo_optimizer.model import build_model
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -31,7 +31,19 @@ class ExperimentResult:
     total_value: int
     num_selected: int
     solve_time_seconds: float
+    rules: dict[str, bool]
+    skip_reason: str | None
     selected_packages: list[str]
+
+
+@dataclass(frozen=True)
+class _Outcome:
+    """What a solving method returns, before totals are computed."""
+    status: str
+    selected: list[Package]
+    solve_time: float
+    rules: dict[str, bool]
+    skip_reason: str | None = None
 
 
 def main() -> None:
@@ -53,29 +65,31 @@ def main() -> None:
 
 def run_experiment(packages: list[Package], config: ExperimentConfig) -> ExperimentResult:
     """Solve one experiment with its configured method, then print and save the result."""
-    if config.method == "cpsat":
-        status, selected, solve_time = _solve_with_cpsat(packages, config)
+    if config.method == Method.CPSAT:
+        outcome = _solve_with_cpsat(packages, config)
     else:
-        status, selected, solve_time = _solve_with_greedy(packages, config)
+        outcome = _solve_with_greedy(packages, config)
 
     result = ExperimentResult(
         experiment=config.name,
-        method=config.method,
-        status=status,
+        method=str(config.method),
+        status=outcome.status,
         capacity=config.capacity,
-        total_weight=sum(package.weight_kg for package in selected),
-        total_value=sum(package.value for package in selected),
-        num_selected=len(selected),
-        solve_time_seconds=round(solve_time, 4),
-        selected_packages=[package.package_id for package in selected],
+        total_weight=sum(package.weight_kg for package in outcome.selected),
+        total_value=sum(package.value for package in outcome.selected),
+        num_selected=len(outcome.selected),
+        solve_time_seconds=round(outcome.solve_time, 4),
+        rules=outcome.rules,
+        skip_reason=outcome.skip_reason,
+        selected_packages=[package.package_id for package in outcome.selected],
     )
     _print_result(result)
     _save_result(config, result)
     return result
 
 
-def _solve_with_cpsat(packages: list[Package], config: ExperimentConfig) -> tuple[str, list[Package], float]:
-    """Build and solve the CP-SAT model; return status name, selected packages and solve time."""
+def _solve_with_cpsat(packages: list[Package], config: ExperimentConfig) -> _Outcome:
+    """Build and solve the CP-SAT model."""
     cargo = build_model(packages, config)
     solver = cp_model.CpSolver()
     status = solver.solve(cargo.model)
@@ -84,19 +98,32 @@ def _solve_with_cpsat(packages: list[Package], config: ExperimentConfig) -> tupl
         selected = [package for package in packages if solver.value(cargo.load[package.package_id])]
     else:
         selected = []
-    return solver.status_name(status), selected, solver.wall_time
+    return _Outcome(solver.status_name(status), selected, solver.wall_time, cargo.rules)
 
 
-def _solve_with_greedy(packages: list[Package], config: ExperimentConfig) -> tuple[str, list[Package], float]:
-    """Run the greedy baseline; its answer always fits but is not proven optimal, hence FEASIBLE."""
+def _solve_with_greedy(packages: list[Package], config: ExperimentConfig) -> _Outcome:
+    """Run the greedy baseline, or skip it when the config uses settings greedy cannot honour.
+
+    Its answer always fits but is not proven optimal, hence FEASIBLE.
+    """
+    unsupported = unsupported_settings(config)
+    if unsupported:
+        return _Outcome("SKIPPED", [], 0.0, {}, skip_reason=f"greedy does not support {', '.join(unsupported)}")
+
     start = time.perf_counter()
     selected = solve_greedy(packages, config)
-    return "FEASIBLE", selected, time.perf_counter() - start
+    return _Outcome("FEASIBLE", selected, time.perf_counter() - start, {"capacity": True})
 
 
 def _print_result(result: ExperimentResult) -> None:
     print(f"\n=== {result.experiment} ({result.method}) ===")
+    if result.rules:
+        print("Rules:          " + ", ".join(
+            f"{rule} [{'ENABLED' if enabled else 'SKIPPED'}]" for rule, enabled in result.rules.items()
+        ))
     print(f"Solver status:  {result.status}")
+    if result.skip_reason:
+        print(f"Skip reason:    {result.skip_reason}")
     print(f"Truck capacity: {result.capacity} kg")
     print(f"Total weight:   {result.total_weight} kg")
     print(f"Total value:    {result.total_value}")
@@ -107,7 +134,7 @@ def _save_result(config: ExperimentConfig, result: ExperimentResult) -> None:
     """Write a config snapshot and the result into a timestamped folder under results/."""
     run_dir = RESULTS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}_{config.name}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "config.yaml").write_text(yaml.safe_dump(asdict(config), sort_keys=False))
+    (run_dir / "config.yaml").write_text(yaml.safe_dump(config.to_dict(), sort_keys=False))
     (run_dir / "result.json").write_text(json.dumps(asdict(result), indent=2))
     print(f"Saved to {run_dir}")
 

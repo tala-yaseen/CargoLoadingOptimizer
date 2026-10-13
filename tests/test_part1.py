@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from ortools.sat.python import cp_model
 
-from cargo_optimizer.config import ExperimentConfig, load_experiments
+from cargo_optimizer.config import ExperimentConfig, Method, ShouldInclude, load_experiments
 from cargo_optimizer.data import Package, load_packages
 from cargo_optimizer.greedy import solve_greedy
 from cargo_optimizer.model import build_model
@@ -18,12 +18,12 @@ PACKAGES = [
 ]
 
 
-def _config(method: str) -> ExperimentConfig:
-    return ExperimentConfig(name="test", method=method, capacity=10)
+def _config(method: Method) -> ExperimentConfig:
+    return ExperimentConfig(name="test", method=method, capacity=10, should_include=ShouldInclude.IGNORE)
 
 
 def test_cpsat_finds_the_optimum():
-    cargo = build_model(PACKAGES, _config("cpsat"))
+    cargo = build_model(PACKAGES, _config(Method.CPSAT))
     solver = cp_model.CpSolver()
 
     assert solver.solve(cargo.model) == cp_model.OPTIMAL
@@ -32,14 +32,16 @@ def test_cpsat_finds_the_optimum():
 
 
 def test_greedy_takes_best_ratio_first():
-    selected = solve_greedy(PACKAGES, _config("greedy"))
+    selected = solve_greedy(PACKAGES, _config(Method.GREEDY))
 
     assert [package.package_id for package in selected] == ["A"]
 
 
 def test_config_rejects_unknown_setting(tmp_path: Path):
     config_file = tmp_path / "experiments.yaml"
-    config_file.write_text("defaults:\n  method: cpsat\n  capcity: 1000\nexperiments:\n  part1: {}\n")
+    config_file.write_text(
+        "defaults:\n  method: cpsat\n  capcity: 1000\n  should_include: ignore\nexperiments:\n  part1: {}\n"
+    )
 
     with pytest.raises(ValueError, match="capcity"):
         load_experiments(config_file)

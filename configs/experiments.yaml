@@ -3,9 +3,17 @@
 defaults:
   method: cpsat              # cpsat | greedy
   capacity: 1000             # kg
+  should_include: ignore     # ignore | hard
 
 experiments:
   part1: {}
 
   part1_greedy:
     method: greedy
+
+  part2:
+    should_include: hard
+
+  part2_greedy:
+    method: greedy
+    should_include: hard
