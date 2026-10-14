@@ -1,6 +1,7 @@
 """Run experiments from configs/experiments.yaml, print their results and save them under results/."""
 
 import argparse
+import csv
 import json
 import time
 from dataclasses import asdict, dataclass
@@ -30,7 +31,7 @@ class ExperimentResult:
     capacity: int
     total_weight: int
     total_value: int
-    objective_value: int               # total value + priority bonus - soft rule penalties
+    objective_value: int | None        # total value + priority bonus - soft rule penalties; None without a solution
     selected_by_priority: dict[str, int]
     soft_rule_violations: dict[str, int]  # packages beyond each soft category rule's bound
     num_selected: int
@@ -56,6 +57,7 @@ def main() -> None:
         "experiments", nargs="*", help="experiment names or patterns such as 'part3_*' (default: all)"
     )
     parser.add_argument("--dataset", default="full", help="dataset name from configs/experiments.yaml (default: full)")
+    parser.add_argument("--quiet", action="store_true", help="print only the summary table, not every run's details")
     args = parser.parse_args()
 
     datasets = load_datasets(CONFIG_PATH)
@@ -73,8 +75,10 @@ def main() -> None:
             parser.error(f"no experiment matches {pattern!r}; available: {list(configs)}")
         names.extend(name for name in matches if name not in names)
 
-    for name in names:
-        run_experiment(packages, configs[name], dataset)
+    started = datetime.now()
+    runs = [(configs[name], run_experiment(packages, configs[name], dataset, verbose=not args.quiet)) for name in names]
+    _print_summary(runs)
+    _save_summary(runs, dataset, started)
 
 
 def _check_rule_ids(dataset: DatasetConfig, packages: list[Package]) -> None:
@@ -84,13 +88,16 @@ def _check_rule_ids(dataset: DatasetConfig, packages: list[Package]) -> None:
         raise ValueError(f"dataset {dataset.name!r}: rules refer to unknown packages {missing}")
 
 
-def run_experiment(packages: list[Package], config: ExperimentConfig, dataset: DatasetConfig) -> ExperimentResult:
+def run_experiment(
+    packages: list[Package], config: ExperimentConfig, dataset: DatasetConfig, verbose: bool = True
+) -> ExperimentResult:
     """Solve one experiment with its configured method, then print and save the result."""
     if config.method == Method.CPSAT:
         outcome = _solve_with_cpsat(packages, config, dataset)
     else:
         outcome = _solve_with_greedy(packages, config)
 
+    has_solution = outcome.status in ("OPTIMAL", "FEASIBLE")
     result = ExperimentResult(
         experiment=config.name,
         dataset=dataset.name,
@@ -99,21 +106,22 @@ def run_experiment(packages: list[Package], config: ExperimentConfig, dataset: D
         capacity=config.capacity,
         total_weight=sum(package.weight_kg for package in outcome.selected),
         total_value=sum(package.value for package in outcome.selected),
-        objective_value=objective_value(outcome.selected, config),
+        objective_value=objective_value(outcome.selected, config) if has_solution else None,
         selected_by_priority={
             priority: sum(package.priority == priority for package in outcome.selected) for priority in PRIORITIES
         },
         soft_rule_violations={
             rule.label: rule_violation(outcome.selected, rule) for rule in config.category_rules if rule.is_soft
-        },
+        } if has_solution else {},
         num_selected=len(outcome.selected),
         solve_time_seconds=round(outcome.solve_time, 4),
         rules=outcome.rules,
         skip_reason=outcome.skip_reason,
         selected_packages=[package.package_id for package in outcome.selected],
     )
-    _print_result(result)
-    _save_result(config, dataset, result)
+    if verbose:
+        _print_result(result)
+    _save_result(config, dataset, result, verbose)
     return result
 
 
@@ -157,21 +165,76 @@ def _print_result(result: ExperimentResult) -> None:
     print(f"Truck capacity: {result.capacity} kg")
     print(f"Total weight:   {result.total_weight} kg")
     print(f"Total value:    {result.total_value}")
-    print(f"Objective:      {result.objective_value}")
+    print(f"Objective:      {'-' if result.objective_value is None else result.objective_value}")
     if result.soft_rule_violations:
         print("Violations:     " + ", ".join(f"{rule}: {n}" for rule, n in result.soft_rule_violations.items()))
     print("By priority:    " + ", ".join(f"{priority} {count}" for priority, count in result.selected_by_priority.items()))
     print(f"Selected ({result.num_selected}): {', '.join(result.selected_packages)}")
 
 
-def _save_result(config: ExperimentConfig, dataset: DatasetConfig, result: ExperimentResult) -> None:
+def _save_result(config: ExperimentConfig, dataset: DatasetConfig, result: ExperimentResult, verbose: bool) -> None:
     """Write a config snapshot (experiment + dataset) and the result into a timestamped folder under results/."""
     run_dir = RESULTS_DIR / f"{datetime.now():%Y%m%d_%H%M%S}_{dataset.name}_{config.name}"
     run_dir.mkdir(parents=True, exist_ok=True)
     snapshot = {**config.to_dict(), "dataset": dataset.to_dict()}
     (run_dir / "config.yaml").write_text(yaml.safe_dump(snapshot, sort_keys=False))
     (run_dir / "result.json").write_text(json.dumps(asdict(result), indent=2))
-    print(f"Saved to {run_dir}")
+    if verbose:
+        print(f"Saved to {run_dir}")
+
+
+SUMMARY_COLUMNS = [
+    "dataset", "experiment", "method", "status", "capacity", "should_include", "priority_weight",
+    "incompatible", "dependency", "category_rules", "num_selected", "total_weight", "total_value",
+    "objective_value", *PRIORITIES, "soft_rule_violations", "solve_time_seconds", "skip_reason",
+]
+
+
+def _summary_row(config: ExperimentConfig, result: ExperimentResult) -> dict:
+    """One flat row per run: the settings that define it and the numbers that describe its result."""
+    return {
+        "dataset": result.dataset,
+        "experiment": result.experiment,
+        "method": result.method,
+        "status": result.status,
+        "capacity": config.capacity,
+        "should_include": str(config.should_include),
+        "priority_weight": config.priority_weight,
+        "incompatible": config.incompatible,
+        "dependency": config.dependency,
+        "category_rules": "; ".join(rule.label for rule in config.category_rules),
+        "num_selected": result.num_selected,
+        "total_weight": result.total_weight,
+        "total_value": result.total_value,
+        "objective_value": "" if result.objective_value is None else result.objective_value,
+        **result.selected_by_priority,
+        "soft_rule_violations": sum(result.soft_rule_violations.values()),
+        "solve_time_seconds": result.solve_time_seconds,
+        "skip_reason": result.skip_reason or "",
+    }
+
+
+def _save_summary(
+    runs: list[tuple[ExperimentConfig, ExperimentResult]], dataset: DatasetConfig, started: datetime
+) -> None:
+    """Write one CSV row per run of this invocation, ready for comparison tables (Part 6)."""
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    path = RESULTS_DIR / f"summary_{started:%Y%m%d_%H%M%S}_{dataset.name}.csv"
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=SUMMARY_COLUMNS)
+        writer.writeheader()
+        writer.writerows(_summary_row(config, result) for config, result in runs)
+    print(f"\nSummary of {len(runs)} runs saved to {path}")
+
+
+def _print_summary(runs: list[tuple[ExperimentConfig, ExperimentResult]]) -> None:
+    """One line per run, so many runs can be compared at a glance."""
+    width = max(len(result.experiment) for _, result in runs)
+    print(f"\n{'experiment':<{width}} {'status':<11} {'value':>8} {'objective':>10} {'C/H/N/L':>12}")
+    for _, result in runs:
+        counts = "/".join(str(count) for count in result.selected_by_priority.values())
+        objective = "-" if result.objective_value is None else result.objective_value
+        print(f"{result.experiment:<{width}} {result.status:<11} {result.total_value:>8} {objective:>10} {counts:>12}")
 
 
 if __name__ == "__main__":

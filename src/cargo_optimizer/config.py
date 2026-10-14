@@ -2,6 +2,7 @@
 
 from dataclasses import asdict, dataclass, fields
 from enum import StrEnum
+from itertools import product
 from pathlib import Path
 
 import yaml
@@ -113,15 +114,40 @@ def _parse_pairs(name: str, settings: dict, key: str) -> tuple[tuple[str, str], 
 
 
 def load_experiments(path: Path) -> dict[str, ExperimentConfig]:
-    """Read every experiment in the YAML file, each merged over the defaults."""
+    """Read every experiment in the YAML file, each merged over the defaults, plus every sweep combination."""
     with path.open(encoding="utf-8") as file:
         content = yaml.safe_load(file)
 
     defaults = content["defaults"]
-    return {
-        name: _build_config(name, {**defaults, **(overrides or {})})
-        for name, overrides in content["experiments"].items()
-    }
+    experiments = {name: overrides or {} for name, overrides in content["experiments"].items()}
+    configs = {name: _build_config(name, {**defaults, **overrides}) for name, overrides in experiments.items()}
+    for sweep_name, sweep in (content.get("sweeps") or {}).items():
+        for name, settings in _expand_sweep(sweep_name, sweep, defaults, experiments).items():
+            configs[name] = _build_config(name, settings)
+    return configs
+
+
+def _expand_sweep(sweep_name: str, sweep: dict, defaults: dict, experiments: dict) -> dict[str, dict]:
+    """Every combination of a sweep: each base experiment with each mix of the listed setting values.
+
+    The name records the base and the swept values, e.g. all_cases__part1__should_include=hard__priority_weight=50.
+    """
+    bases = sweep.get("base", [])
+    unknown_bases = [base for base in bases if base not in experiments]
+    if not bases or unknown_bases:
+        raise ValueError(f"sweep {sweep_name!r}: base must list existing experiments, unknown: {unknown_bases}")
+    swept = {key: values for key, values in sweep.items() if key != "base"}
+    not_lists = [key for key, values in swept.items() if not isinstance(values, list)]
+    if not_lists:
+        raise ValueError(f"sweep {sweep_name!r}: values must be lists, check {not_lists}")
+
+    combinations = {}
+    for base in bases:
+        for values in product(*swept.values()):
+            choice = dict(zip(swept, values))
+            name = "__".join([sweep_name, base, *(f"{key}={value}" for key, value in choice.items())])
+            combinations[name] = {**defaults, **experiments[base], **choice}
+    return combinations
 
 
 def _build_config(name: str, settings: dict) -> ExperimentConfig:

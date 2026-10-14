@@ -153,3 +153,12 @@ experiments:
     category_rules:
       - {category: Furniture, at_most: 3}
       - {category: Medical, at_least: 2, penalty: 500}
+
+# Sweeps: every combination of the listed values, applied to each base experiment.
+# Run with e.g.:  run_experiment "all_cases*" --quiet [--dataset example]
+sweeps:
+  all_cases:
+    base: [part1, part4_all_rules_p0, part4_all_rules_p50, part4_all_rules_p150, part4_all_rules_p500]
+    should_include: [ignore, hard]
+    priority_weight: [0, 50, 150, 500, 2000]
+    method: [cpsat, greedy]

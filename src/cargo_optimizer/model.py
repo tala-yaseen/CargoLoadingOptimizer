@@ -95,8 +95,7 @@ def _add_dependency(
 ) -> None:
     """If a dependent package is loaded, its required package must be too: x_a <= x_b for every (a, b)."""
     for dependent, required in dependencies:
-        constraint = model.add_implication(load[dependent], load[required])
-        constraint.with_name(f"dependency_{dependent}_needs_{required}")
+        model.add(load[dependent] <= load[required]).with_name(f"dependency_{dependent}_needs_{required}")
 
 
 def _add_hard_category_rule(
@@ -104,24 +103,33 @@ def _add_hard_category_rule(
 ) -> None:
     """Hard bound on a category: sum(x_i for i in category) >= count (at_least) or <= count (at_most)."""
     loaded = sum(load[package.package_id] for package in packages if package.category == rule.category)
-    bound = loaded >= rule.count if rule.direction == "at_least" else loaded <= rule.count
-    model.add(bound).with_name(f"{rule.category}_{rule.direction}_{rule.count}")
+    name = f"{rule.category}_{rule.direction}_{rule.count}"
+
+    if rule.direction == "at_least":
+        model.add(loaded >= rule.count).with_name(name)
+    else:
+        model.add(loaded <= rule.count).with_name(name)
 
 
 def _add_soft_category_rule(
     model: cp_model.CpModel, packages: list[Package], load: dict[str, cp_model.IntVar], rule: CategoryRule
 ) -> cp_model.IntVar:
-    """Soft bound: a violation variable absorbs packages beyond the bound and is penalised in the objective.
+    """Soft bound: returns the violation variable that the objective penalises.
 
-    at_least: loaded + shortfall >= count;  at_most: loaded - excess <= count.
+    at_least: shortfall = packages missing below the minimum;  at_most: excess = packages above the limit.
     """
     in_category = [package for package in packages if package.category == rule.category]
     loaded = sum(load[package.package_id] for package in in_category)
-    most_possible = rule.count if rule.direction == "at_least" else len(in_category)
-    violation = model.new_int_var(0, most_possible, f"violation_{rule.category}_{rule.direction}_{rule.count}")
-    bound = loaded + violation >= rule.count if rule.direction == "at_least" else loaded - violation <= rule.count
-    model.add(bound).with_name(f"{rule.category}_{rule.direction}_{rule.count}_soft")
-    return violation
+    name = f"{rule.category}_{rule.direction}_{rule.count}_soft"
+
+    if rule.direction == "at_least":
+        shortfall = model.new_int_var(0, rule.count, f"shortfall_{rule.category}")
+        model.add(loaded + shortfall >= rule.count).with_name(name)  # missing packages fill the gap
+        return shortfall
+
+    excess = model.new_int_var(0, len(in_category), f"excess_{rule.category}")
+    model.add(loaded - excess <= rule.count).with_name(name)  # extra packages beyond the limit
+    return excess
 
 
 def _maximize_score(
