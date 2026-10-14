@@ -13,7 +13,9 @@ def _package(package_id: str, weight_kg: int, value: int, should_included: bool)
 
 
 def _config(capacity: int, should_include: ShouldInclude, method: Method = Method.CPSAT) -> ExperimentConfig:
-    return ExperimentConfig(name="test", method=method, capacity=capacity, should_include=should_include)
+    return ExperimentConfig(
+        name="test", method=method, capacity=capacity, should_include=should_include, priority_weight=0
+    )
 
 
 def _solve(packages: list[Package], config: ExperimentConfig) -> tuple[int, set[str]]:

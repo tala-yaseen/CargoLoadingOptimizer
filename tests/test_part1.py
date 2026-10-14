@@ -19,7 +19,9 @@ PACKAGES = [
 
 
 def _config(method: Method) -> ExperimentConfig:
-    return ExperimentConfig(name="test", method=method, capacity=10, should_include=ShouldInclude.IGNORE)
+    return ExperimentConfig(
+        name="test", method=method, capacity=10, should_include=ShouldInclude.IGNORE, priority_weight=0
+    )
 
 
 def test_cpsat_finds_the_optimum():
@@ -40,7 +42,8 @@ def test_greedy_takes_best_ratio_first():
 def test_config_rejects_unknown_setting(tmp_path: Path):
     config_file = tmp_path / "experiments.yaml"
     config_file.write_text(
-        "defaults:\n  method: cpsat\n  capcity: 1000\n  should_include: ignore\nexperiments:\n  part1: {}\n"
+        "defaults:\n  method: cpsat\n  capcity: 1000\n  should_include: ignore\n  priority_weight: 0\n"
+        "experiments:\n  part1: {}\n"
     )
 
     with pytest.raises(ValueError, match="capcity"):

@@ -1,7 +1,8 @@
-"""Greedy baseline: load packages by value per kg until the truck is full."""
+"""Greedy baseline: load packages by score per kg until the truck is full."""
 
 from cargo_optimizer.config import ExperimentConfig, ShouldInclude
 from cargo_optimizer.data import Package
+from cargo_optimizer.model import package_score
 
 
 def unsupported_settings(config: ExperimentConfig) -> list[str]:
@@ -13,8 +14,12 @@ def unsupported_settings(config: ExperimentConfig) -> list[str]:
 
 
 def solve_greedy(packages: list[Package], config: ExperimentConfig) -> list[Package]:
-    """Take packages in order of value per kg, skipping any that no longer fit."""
-    by_ratio = sorted(packages, key=lambda package: package.value / package.weight_kg, reverse=True)
+    """Take packages in order of score per kg (value per kg when priority_weight is 0), skipping any that no longer fit."""
+    by_ratio = sorted(
+        packages,
+        key=lambda package: package_score(package, config.priority_weight) / package.weight_kg,
+        reverse=True,
+    )
 
     selected: list[Package] = []
     remaining = config.capacity

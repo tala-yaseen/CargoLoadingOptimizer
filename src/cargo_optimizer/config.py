@@ -23,6 +23,7 @@ class ExperimentConfig:
     method: Method
     capacity: int
     should_include: ShouldInclude
+    priority_weight: int
 
     def to_dict(self) -> dict:
         """Plain values only (enums become their text), ready to save as YAML or JSON."""
@@ -54,12 +55,17 @@ def _build_config(name: str, settings: dict) -> ExperimentConfig:
 
     if settings["capacity"] <= 0:
         raise ValueError(f"experiment {name!r}: capacity must be positive, got {settings['capacity']}")
+    if not isinstance(settings["priority_weight"], int) or settings["priority_weight"] < 0:
+        raise ValueError(
+            f"experiment {name!r}: priority_weight must be a whole number >= 0, got {settings['priority_weight']!r}"
+        )
 
     return ExperimentConfig(
         name=name,
         method=_parse_enum(name, "method", settings["method"], Method),
         capacity=settings["capacity"],
         should_include=_parse_enum(name, "should_include", settings["should_include"], ShouldInclude),
+        priority_weight=settings["priority_weight"],
     )
 
 

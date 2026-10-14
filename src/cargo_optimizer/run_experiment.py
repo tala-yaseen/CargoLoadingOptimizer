@@ -5,15 +5,16 @@ import json
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from fnmatch import fnmatch
 from pathlib import Path
 
 import yaml
 from ortools.sat.python import cp_model
 
 from cargo_optimizer.config import ExperimentConfig, Method, load_experiments
-from cargo_optimizer.data import Package, load_packages
+from cargo_optimizer.data import PRIORITIES, Package, load_packages
 from cargo_optimizer.greedy import solve_greedy, unsupported_settings
-from cargo_optimizer.model import build_model
+from cargo_optimizer.model import build_model, package_score
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_PATH = PROJECT_ROOT / "data" / "packages.csv"
@@ -29,6 +30,8 @@ class ExperimentResult:
     capacity: int
     total_weight: int
     total_value: int
+    objective_value: int               # total value + priority bonus; equals total_value when priority_weight is 0
+    selected_by_priority: dict[str, int]
     num_selected: int
     solve_time_seconds: float
     rules: dict[str, bool]
@@ -48,16 +51,20 @@ class _Outcome:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run cargo loading experiments.")
-    parser.add_argument("experiments", nargs="*", help="experiment names to run (default: all)")
+    parser.add_argument(
+        "experiments", nargs="*", help="experiment names or patterns such as 'part3_*' (default: all)"
+    )
     args = parser.parse_args()
 
     packages = load_packages(DATA_PATH)
     configs = load_experiments(CONFIG_PATH)
 
-    names = args.experiments or list(configs)
-    unknown = [name for name in names if name not in configs]
-    if unknown:
-        parser.error(f"unknown experiments {unknown}; available: {list(configs)}")
+    names: list[str] = []
+    for pattern in args.experiments or ["*"]:
+        matches = [name for name in configs if fnmatch(name, pattern)]
+        if not matches:
+            parser.error(f"no experiment matches {pattern!r}; available: {list(configs)}")
+        names.extend(name for name in matches if name not in names)
 
     for name in names:
         run_experiment(packages, configs[name])
@@ -77,6 +84,10 @@ def run_experiment(packages: list[Package], config: ExperimentConfig) -> Experim
         capacity=config.capacity,
         total_weight=sum(package.weight_kg for package in outcome.selected),
         total_value=sum(package.value for package in outcome.selected),
+        objective_value=sum(package_score(package, config.priority_weight) for package in outcome.selected),
+        selected_by_priority={
+            priority: sum(package.priority == priority for package in outcome.selected) for priority in PRIORITIES
+        },
         num_selected=len(outcome.selected),
         solve_time_seconds=round(outcome.solve_time, 4),
         rules=outcome.rules,
@@ -112,7 +123,8 @@ def _solve_with_greedy(packages: list[Package], config: ExperimentConfig) -> _Ou
 
     start = time.perf_counter()
     selected = solve_greedy(packages, config)
-    return _Outcome("FEASIBLE", selected, time.perf_counter() - start, {"capacity": True})
+    rules = {"capacity": True, "priority_bonus": config.priority_weight > 0}
+    return _Outcome("FEASIBLE", selected, time.perf_counter() - start, rules)
 
 
 def _print_result(result: ExperimentResult) -> None:
@@ -127,6 +139,8 @@ def _print_result(result: ExperimentResult) -> None:
     print(f"Truck capacity: {result.capacity} kg")
     print(f"Total weight:   {result.total_weight} kg")
     print(f"Total value:    {result.total_value}")
+    print(f"Objective:      {result.objective_value}")
+    print("By priority:    " + ", ".join(f"{priority} {count}" for priority, count in result.selected_by_priority.items()))
     print(f"Selected ({result.num_selected}): {', '.join(result.selected_packages)}")
 
 
