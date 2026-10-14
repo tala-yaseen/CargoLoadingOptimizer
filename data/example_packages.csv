@@ -1,0 +1,11 @@
+package_id,weight_kg,value,priority,category,should_included
+P01,120,500,High,Electronics,True
+P02,250,850,Normal,Furniture,False
+P03,80,400,Critical,Medical,True
+P04,300,900,Low,Furniture,False
+P05,150,650,High,Electronics,True
+P06,100,300,Normal,Food,False
+P07,220,750,High,Equipment,True
+P08,180,550,Normal,Food,False
+P09,90,350,Critical,Medical,True
+P10,270,1000,Low,Equipment,False
