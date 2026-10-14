@@ -1,18 +1,33 @@
 """Load experiment settings from experiments.yaml."""
 
-from dataclasses import dataclass, fields
+from dataclasses import asdict, dataclass, fields
+from enum import StrEnum
 from pathlib import Path
 
 import yaml
 
-METHODS = ("cpsat", "greedy")
+
+class Method(StrEnum):
+    CPSAT = "cpsat"
+    GREEDY = "greedy"
+
+
+class ShouldInclude(StrEnum):
+    IGNORE = "ignore"  # Part 1: the column is not used
+    HARD = "hard"      # Part 2: every should_included package must be loaded
 
 
 @dataclass(frozen=True)
 class ExperimentConfig:
     name: str
-    method: str
+    method: Method
     capacity: int
+    should_include: ShouldInclude
+    priority_weight: int
+
+    def to_dict(self) -> dict:
+        """Plain values only (enums become their text), ready to save as YAML or JSON."""
+        return {key: str(value) if isinstance(value, StrEnum) else value for key, value in asdict(self).items()}
 
 
 def load_experiments(path: Path) -> dict[str, ExperimentConfig]:
@@ -38,9 +53,26 @@ def _build_config(name: str, settings: dict) -> ExperimentConfig:
     if missing:
         raise ValueError(f"experiment {name!r}: missing settings {sorted(missing)}")
 
-    if settings["method"] not in METHODS:
-        raise ValueError(f"experiment {name!r}: method must be one of {METHODS}, got {settings['method']!r}")
     if settings["capacity"] <= 0:
         raise ValueError(f"experiment {name!r}: capacity must be positive, got {settings['capacity']}")
+    if not isinstance(settings["priority_weight"], int) or settings["priority_weight"] < 0:
+        raise ValueError(
+            f"experiment {name!r}: priority_weight must be a whole number >= 0, got {settings['priority_weight']!r}"
+        )
 
-    return ExperimentConfig(name=name, **settings)
+    return ExperimentConfig(
+        name=name,
+        method=_parse_enum(name, "method", settings["method"], Method),
+        capacity=settings["capacity"],
+        should_include=_parse_enum(name, "should_include", settings["should_include"], ShouldInclude),
+        priority_weight=settings["priority_weight"],
+    )
+
+
+def _parse_enum[E: StrEnum](name: str, setting: str, value: str, enum: type[E]) -> E:
+    """Convert a YAML text value into its enum member, with a clear error for unknown values."""
+    try:
+        return enum(value)
+    except ValueError:
+        allowed = [member.value for member in enum]
+        raise ValueError(f"experiment {name!r}: {setting} must be one of {allowed}, got {value!r}") from None
