@@ -1,10 +1,24 @@
 # Every experiment starts from `defaults` and overrides only what differs.
+# Choose the dataset when running: --dataset full (default) or --dataset example.
+
+datasets:
+  full:
+    path: data/packages.csv
+    incompatible_pairs: [[P0002, P0006]]   # assumption: the brief's P02/P06, zero-padded
+    dependencies: [[P0007, P0003]]         # P0007 needs P0003 (the brief's P07/P03)
+  example:
+    path: data/example_packages.csv        # the 10 packages from the brief
+    incompatible_pairs: [[P02, P06]]
+    dependencies: [[P07, P03]]             # P07 needs P03
 
 defaults:
   method: cpsat              # cpsat | greedy
   capacity: 1000             # kg
   should_include: ignore     # ignore | hard
   priority_weight: 0         # value of one priority step (Critical 3, High 2, Normal 1, Low 0)
+  incompatible: false        # true: the dataset's incompatible pairs cannot both be loaded
+  dependency: false          # true: a dependent package needs its required package
+  category_rules: []         # e.g. {category: Furniture, at_most: 3}; add penalty to make a rule soft
 
 experiments:
   part1: {}
@@ -34,3 +48,117 @@ experiments:
 
   part3_w2000:
     priority_weight: 2000    # ~the most valuable package
+
+  # Part 3 with the greedy baseline (same weights, same score)
+  part3_w0_greedy:
+    method: greedy
+    priority_weight: 0
+
+  part3_w50_greedy:
+    method: greedy
+    priority_weight: 50
+
+  part3_w150_greedy:
+    method: greedy
+    priority_weight: 150
+
+  part3_w500_greedy:
+    method: greedy
+    priority_weight: 500
+
+  part3_w2000_greedy:
+    method: greedy
+    priority_weight: 2000
+
+  # Part 2 + Part 3: must-include hard together with the priority bonus (capacity 1000)
+  part2_3_w0:
+    should_include: hard
+    priority_weight: 0
+
+  part2_3_w50:
+    should_include: hard
+    priority_weight: 50
+
+  part2_3_w150:
+    should_include: hard
+    priority_weight: 150
+
+  part2_3_w500:
+    should_include: hard
+    priority_weight: 500
+
+  part2_3_w2000:
+    should_include: hard
+    priority_weight: 2000
+
+  # Part 4: business rules
+  part4_incompatible:
+    incompatible: true
+
+  part4_dependency:
+    dependency: true
+
+  part4_furniture_max:
+    category_rules:
+      - {category: Furniture, at_most: 3}                 # hard
+
+  part4_hard_rules:          # all three hard rules together
+    incompatible: true
+    dependency: true
+    category_rules:
+      - {category: Furniture, at_most: 3}
+
+  # Soft Medical minimum: the penalty is experimental (cost per missing Medical package)
+  part4_medical_p0:
+    category_rules:
+      - {category: Medical, at_least: 2, penalty: 0}
+
+  part4_medical_p50:
+    category_rules:
+      - {category: Medical, at_least: 2, penalty: 50}
+
+  part4_medical_p150:
+    category_rules:
+      - {category: Medical, at_least: 2, penalty: 150}
+
+  part4_medical_p500:
+    category_rules:
+      - {category: Medical, at_least: 2, penalty: 500}
+
+  # All Part 4 rules in one run: three hard rules + soft Medical minimum, per penalty
+  part4_all_rules_p0:
+    incompatible: true
+    dependency: true
+    category_rules:
+      - {category: Furniture, at_most: 3}
+      - {category: Medical, at_least: 2, penalty: 0}
+
+  part4_all_rules_p50:
+    incompatible: true
+    dependency: true
+    category_rules:
+      - {category: Furniture, at_most: 3}
+      - {category: Medical, at_least: 2, penalty: 50}
+
+  part4_all_rules_p150:
+    incompatible: true
+    dependency: true
+    category_rules:
+      - {category: Furniture, at_most: 3}
+      - {category: Medical, at_least: 2, penalty: 150}
+
+  part4_all_rules_p500:
+    incompatible: true
+    dependency: true
+    category_rules:
+      - {category: Furniture, at_most: 3}
+      - {category: Medical, at_least: 2, penalty: 500}
+
+# Sweeps: every combination of the listed values, applied to each base experiment.
+# Run with e.g.:  run_experiment "all_cases*" --quiet [--dataset example]
+sweeps:
+  all_cases:
+    base: [part1, part4_all_rules_p0, part4_all_rules_p50, part4_all_rules_p150, part4_all_rules_p500]
+    should_include: [ignore, hard]
+    priority_weight: [0, 50, 150, 500, 2000]
+    method: [cpsat, greedy]

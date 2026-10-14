@@ -10,6 +10,12 @@ def unsupported_settings(config: ExperimentConfig) -> list[str]:
     unsupported = []
     if config.should_include != ShouldInclude.IGNORE:
         unsupported.append(f"should_include={config.should_include}")
+    if config.incompatible:
+        unsupported.append("incompatible packages")
+    if config.dependency:
+        unsupported.append("package dependencies")
+    if config.category_rules:
+        unsupported.append("category rules")
     return unsupported
 
 

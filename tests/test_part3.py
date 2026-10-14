@@ -3,10 +3,11 @@
 import pytest
 from ortools.sat.python import cp_model
 
-from cargo_optimizer.config import ExperimentConfig, Method, ShouldInclude, _build_config
+from cargo_optimizer.config import ExperimentConfig, Method, _build_config
 from cargo_optimizer.data import Package
 from cargo_optimizer.greedy import solve_greedy
 from cargo_optimizer.model import build_model, package_score
+from helpers import BASE_CONFIG, NO_RULES, make_config
 
 # The truck fits only one. B overtakes A when 600 + 3w > 1000, i.e. w > 133.3.
 A = Package("A", weight_kg=10, value=1000, priority="Low", category="Food", should_included=False)
@@ -14,13 +15,11 @@ B = Package("B", weight_kg=10, value=600, priority="Critical", category="Medical
 
 
 def _config(priority_weight: int, method: Method = Method.CPSAT) -> ExperimentConfig:
-    return ExperimentConfig(
-        name="test", method=method, capacity=10, should_include=ShouldInclude.IGNORE, priority_weight=priority_weight
-    )
+    return make_config(priority_weight=priority_weight, method=method)
 
 
 def _cpsat_choice(priority_weight: int) -> set[str]:
-    cargo = build_model([A, B], _config(priority_weight))
+    cargo = build_model([A, B], _config(priority_weight), NO_RULES)
     solver = cp_model.CpSolver()
     assert solver.solve(cargo.model) == cp_model.OPTIMAL
     return {pid for pid, var in cargo.load.items() if solver.value(var)}
@@ -43,7 +42,8 @@ def test_greedy_uses_the_same_score():
 
 
 def test_negative_priority_weight_is_rejected():
-    settings = {"method": "cpsat", "capacity": 10, "should_include": "ignore", "priority_weight": -5}
+    settings = {**BASE_CONFIG.to_dict(), "priority_weight": -5}
+    del settings["name"]
 
     with pytest.raises(ValueError, match="priority_weight"):
         _build_config("test", settings)

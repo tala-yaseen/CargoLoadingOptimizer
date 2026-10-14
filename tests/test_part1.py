@@ -5,10 +5,11 @@ from pathlib import Path
 import pytest
 from ortools.sat.python import cp_model
 
-from cargo_optimizer.config import ExperimentConfig, Method, ShouldInclude, load_experiments
+from cargo_optimizer.config import Method, load_experiments
 from cargo_optimizer.data import Package, load_packages
 from cargo_optimizer.greedy import solve_greedy
 from cargo_optimizer.model import build_model
+from helpers import NO_RULES, make_config
 
 # Capacity 10: greedy takes A (best value per kg) and gets 30; the optimum is B + D = 40.
 PACKAGES = [
@@ -17,15 +18,8 @@ PACKAGES = [
     Package("D", weight_kg=5, value=20, priority="Normal", category="Food", should_included=False),
 ]
 
-
-def _config(method: Method) -> ExperimentConfig:
-    return ExperimentConfig(
-        name="test", method=method, capacity=10, should_include=ShouldInclude.IGNORE, priority_weight=0
-    )
-
-
 def test_cpsat_finds_the_optimum():
-    cargo = build_model(PACKAGES, _config(Method.CPSAT))
+    cargo = build_model(PACKAGES, make_config(), NO_RULES)
     solver = cp_model.CpSolver()
 
     assert solver.solve(cargo.model) == cp_model.OPTIMAL
@@ -34,7 +28,7 @@ def test_cpsat_finds_the_optimum():
 
 
 def test_greedy_takes_best_ratio_first():
-    selected = solve_greedy(PACKAGES, _config(Method.GREEDY))
+    selected = solve_greedy(PACKAGES, make_config(method=Method.GREEDY))
 
     assert [package.package_id for package in selected] == ["A"]
 
@@ -42,8 +36,7 @@ def test_greedy_takes_best_ratio_first():
 def test_config_rejects_unknown_setting(tmp_path: Path):
     config_file = tmp_path / "experiments.yaml"
     config_file.write_text(
-        "defaults:\n  method: cpsat\n  capcity: 1000\n  should_include: ignore\n  priority_weight: 0\n"
-        "experiments:\n  part1: {}\n"
+        "defaults:\n  method: cpsat\n  capcity: 1000\nexperiments:\n  part1: {}\n"
     )
 
     with pytest.raises(ValueError, match="capcity"):
