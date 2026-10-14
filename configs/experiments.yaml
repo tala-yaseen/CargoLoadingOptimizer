@@ -34,3 +34,24 @@ experiments:
 
   part3_w2000:
     priority_weight: 2000    # ~the most valuable package
+
+  # Part 3 with the greedy baseline (same weights, same score)
+  part3_w0_greedy:
+    method: greedy
+    priority_weight: 0
+
+  part3_w50_greedy:
+    method: greedy
+    priority_weight: 50
+
+  part3_w150_greedy:
+    method: greedy
+    priority_weight: 150
+
+  part3_w500_greedy:
+    method: greedy
+    priority_weight: 500
+
+  part3_w2000_greedy:
+    method: greedy
+    priority_weight: 2000
