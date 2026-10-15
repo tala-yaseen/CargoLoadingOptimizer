@@ -290,3 +290,12 @@ sweeps:
       furniture_p100:  [{category: Furniture, at_most: 3, penalty: 100}]
       furniture_p500:  [{category: Furniture, at_most: 3, penalty: 500}]
       furniture_p2000: [{category: Furniture, at_most: 3, penalty: 2000}]
+
+  # Part 6.4: the same Medical minimum as soft (two penalties) vs hard
+  part6_medical_soft_vs_hard:
+    base: [part6_medical_base]
+    capacity: [150, 200, 250, 1000]
+    category_rules:
+      soft_p50:  [{category: Medical, at_least: 2, penalty: 50}]
+      soft_p150: [{category: Medical, at_least: 2, penalty: 150}]
+      hard:      [{category: Medical, at_least: 2}]
