@@ -57,6 +57,7 @@ class ExperimentConfig:
     trucks: int
     should_include: ShouldInclude
     should_include_penalty: int  # used when should_include is soft
+    value_weight: int     # objective weight of package value
     priority_weight: int
     incompatible: bool
     dependency: bool
@@ -140,21 +141,26 @@ def _expand_sweep(sweep_name: str, sweep: dict, defaults: dict, experiments: dic
     """Every combination of a sweep: each base experiment with each mix of the listed setting values.
 
     The name records the base and the swept values, e.g. all_cases__part1__should_include=hard__priority_weight=50.
+    Values are a list, or a mapping of label -> value when a value is too long for a name (e.g. a list of rules).
     """
     bases = sweep.get("base", [])
     unknown_bases = [base for base in bases if base not in experiments]
     if not bases or unknown_bases:
         raise ValueError(f"sweep {sweep_name!r}: base must list existing experiments, unknown: {unknown_bases}")
     swept = {key: values for key, values in sweep.items() if key != "base"}
-    not_lists = [key for key, values in swept.items() if not isinstance(values, list)]
-    if not_lists:
-        raise ValueError(f"sweep {sweep_name!r}: values must be lists, check {not_lists}")
+    wrong_type = [key for key, values in swept.items() if not isinstance(values, (list, dict))]
+    if wrong_type:
+        raise ValueError(f"sweep {sweep_name!r}: values must be a list or a label mapping, check {wrong_type}")
+    labelled = {
+        key: values if isinstance(values, dict) else {str(value): value for value in values}
+        for key, values in swept.items()
+    }
 
     combinations = {}
     for base in bases:
-        for values in product(*swept.values()):
-            choice = dict(zip(swept, values))
-            name = "__".join([sweep_name, base, *(f"{key}={value}" for key, value in choice.items())])
+        for labels in product(*labelled.values()):
+            choice = {key: labelled[key][label] for key, label in zip(labelled, labels)}
+            name = "__".join([sweep_name, base, *(f"{key}={label}" for key, label in zip(labelled, labels))])
             combinations[name] = {**defaults, **experiments[base], **choice}
     return combinations
 
@@ -171,14 +177,10 @@ def _build_config(name: str, settings: dict) -> ExperimentConfig:
         raise ValueError(f"experiment {name!r}: missing settings {sorted(missing)}")
 
     _check_capacity(name, settings["capacity"])
-    for setting, smallest in (("trucks", 1), ("should_include_penalty", 0)):
+    for setting, smallest in (("trucks", 1), ("should_include_penalty", 0), ("value_weight", 0), ("priority_weight", 0)):
         value = settings[setting]
         if not isinstance(value, int) or isinstance(value, bool) or value < smallest:
             raise ValueError(f"experiment {name!r}: {setting} must be a whole number >= {smallest}, got {value!r}")
-    if not isinstance(settings["priority_weight"], int) or settings["priority_weight"] < 0:
-        raise ValueError(
-            f"experiment {name!r}: priority_weight must be a whole number >= 0, got {settings['priority_weight']!r}"
-        )
     for flag in ("incompatible", "dependency"):
         if not isinstance(settings[flag], bool):
             raise ValueError(f"experiment {name!r}: {flag} must be true or false, got {settings[flag]!r}")
@@ -190,6 +192,7 @@ def _build_config(name: str, settings: dict) -> ExperimentConfig:
         trucks=settings["trucks"],
         should_include=_parse_enum(name, "should_include", settings["should_include"], ShouldInclude),
         should_include_penalty=settings["should_include_penalty"],
+        value_weight=settings["value_weight"],
         priority_weight=settings["priority_weight"],
         incompatible=settings["incompatible"],
         dependency=settings["dependency"],

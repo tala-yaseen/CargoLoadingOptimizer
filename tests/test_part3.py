@@ -26,8 +26,8 @@ def _cpsat_choice(priority_weight: int) -> set[str]:
 
 
 def test_score_adds_weighted_priority_points():
-    assert package_score(B, priority_weight=10) == 600 + 10 * 3
-    assert package_score(A, priority_weight=10) == 1000
+    assert package_score(B, make_config(priority_weight=10)) == 600 + 10 * 3
+    assert package_score(A, make_config(priority_weight=10)) == 1000
 
 
 @pytest.mark.parametrize(("priority_weight", "expected"), [(0, {"A"}), (100, {"A"}), (150, {"B"})])
