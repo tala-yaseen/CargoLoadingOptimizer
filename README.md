@@ -56,7 +56,8 @@ Each run prints its rules, status, totals and model size, and writes:
 - `results/<time>_<dataset>_<experiment>/result.json`: status, selected packages, totals, gap, conflicts
 - `results/summary_<time>_<dataset>.csv`: one row per run of that invocation
 
-`results/` is not committed: the important results are kept as tables in the project's design log, and re-running
+`results/` is not committed: the important results are kept as tables in
+[docs/optimization_model.md](docs/optimization_model.md) (model and results for every Part), and re-running
 an experiment recreates its raw results exactly (fixed seeds; runs that hit a time limit can vary slightly).
 
 ## Datasets
