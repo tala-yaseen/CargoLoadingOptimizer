@@ -18,6 +18,7 @@ class Method(StrEnum):
 class ShouldInclude(StrEnum):
     IGNORE = "ignore"  # Part 1: the column is not used
     HARD = "hard"      # Part 2: every should_included package must be loaded
+    SOFT = "soft"      # Part 5/6: each should_included package left behind costs should_include_penalty
 
 
 @dataclass(frozen=True)
@@ -52,12 +53,20 @@ class CategoryRule:
 class ExperimentConfig:
     name: str
     method: Method
-    capacity: int
+    capacity: int | str  # kg per truck, or a share of the dataset's total weight such as "25%"
+    trucks: int
     should_include: ShouldInclude
+    should_include_penalty: int  # used when should_include is soft
     priority_weight: int
     incompatible: bool
     dependency: bool
     category_rules: tuple[CategoryRule, ...]
+
+    def capacity_kg(self, total_weight_kg: int) -> int:
+        """Capacity in kg: as given, or the given percentage of all packages' total weight."""
+        if isinstance(self.capacity, int):
+            return self.capacity
+        return round(total_weight_kg * float(self.capacity.rstrip("%")) / 100)
 
     def to_dict(self) -> dict:
         """Plain values only (enums become their text), ready to save as YAML or JSON."""
@@ -161,8 +170,11 @@ def _build_config(name: str, settings: dict) -> ExperimentConfig:
     if missing:
         raise ValueError(f"experiment {name!r}: missing settings {sorted(missing)}")
 
-    if settings["capacity"] <= 0:
-        raise ValueError(f"experiment {name!r}: capacity must be positive, got {settings['capacity']}")
+    _check_capacity(name, settings["capacity"])
+    for setting, smallest in (("trucks", 1), ("should_include_penalty", 0)):
+        value = settings[setting]
+        if not isinstance(value, int) or isinstance(value, bool) or value < smallest:
+            raise ValueError(f"experiment {name!r}: {setting} must be a whole number >= {smallest}, got {value!r}")
     if not isinstance(settings["priority_weight"], int) or settings["priority_weight"] < 0:
         raise ValueError(
             f"experiment {name!r}: priority_weight must be a whole number >= 0, got {settings['priority_weight']!r}"
@@ -175,12 +187,27 @@ def _build_config(name: str, settings: dict) -> ExperimentConfig:
         name=name,
         method=_parse_enum(name, "method", settings["method"], Method),
         capacity=settings["capacity"],
+        trucks=settings["trucks"],
         should_include=_parse_enum(name, "should_include", settings["should_include"], ShouldInclude),
+        should_include_penalty=settings["should_include_penalty"],
         priority_weight=settings["priority_weight"],
         incompatible=settings["incompatible"],
         dependency=settings["dependency"],
         category_rules=tuple(_parse_category_rule(name, rule) for rule in settings["category_rules"]),
     )
+
+
+def _check_capacity(name: str, capacity: int | str) -> None:
+    """Capacity is a positive number of kg, or a percentage of total weight between 0 and 100, e.g. "25%"."""
+    if isinstance(capacity, int) and not isinstance(capacity, bool) and capacity > 0:
+        return
+    if isinstance(capacity, str) and capacity.endswith("%"):
+        try:
+            if 0 < float(capacity[:-1]) <= 100:
+                return
+        except ValueError:
+            pass
+    raise ValueError(f"experiment {name!r}: capacity must be kg > 0 or a percentage like '25%', got {capacity!r}")
 
 
 def _parse_category_rule(name: str, rule: dict) -> CategoryRule:

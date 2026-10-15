@@ -4,7 +4,7 @@ import argparse
 import csv
 import json
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from fnmatch import fnmatch
 from pathlib import Path
@@ -14,8 +14,9 @@ from ortools.sat.python import cp_model
 
 from cargo_optimizer.config import DatasetConfig, ExperimentConfig, Method, load_datasets, load_experiments
 from cargo_optimizer.data import PRIORITIES, Package, load_packages
+from cargo_optimizer.diagnose import find_conflicting_rules
 from cargo_optimizer.greedy import solve_greedy, unsupported_settings
-from cargo_optimizer.model import build_model, objective_value, rule_violation
+from cargo_optimizer.model import build_model, missing_must_include, objective_value, rule_violation
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = PROJECT_ROOT / "configs" / "experiments.yaml"
@@ -28,12 +29,16 @@ class ExperimentResult:
     dataset: str
     method: str
     status: str
-    capacity: int
+    capacity: int  # kg per truck, after resolving a percentage capacity
+    trucks: int
     total_weight: int
     total_value: int
     objective_value: int | None        # total value + priority bonus - soft rule penalties; None without a solution
     selected_by_priority: dict[str, int]
     soft_rule_violations: dict[str, int]  # packages beyond each soft category rule's bound
+    preferred_included: int            # should_included packages that were loaded
+    truck_weights: list[int]           # kg loaded on each truck (only with several trucks)
+    conflicting_rules: list[str]       # for an infeasible model: a minimal set of hard rules that conflict
     num_selected: int
     solve_time_seconds: float
     rules: dict[str, bool]
@@ -49,6 +54,8 @@ class _Outcome:
     solve_time: float
     rules: dict[str, bool]
     skip_reason: str | None = None
+    truck_weights: list[int] = field(default_factory=list)
+    conflicting_rules: list[str] = field(default_factory=list)
 
 
 def main() -> None:
@@ -103,16 +110,20 @@ def run_experiment(
         dataset=dataset.name,
         method=str(config.method),
         status=outcome.status,
-        capacity=config.capacity,
+        capacity=config.capacity_kg(sum(package.weight_kg for package in packages)),
+        trucks=config.trucks,
         total_weight=sum(package.weight_kg for package in outcome.selected),
         total_value=sum(package.value for package in outcome.selected),
-        objective_value=objective_value(outcome.selected, config) if has_solution else None,
+        objective_value=objective_value(outcome.selected, packages, config) if has_solution else None,
         selected_by_priority={
             priority: sum(package.priority == priority for package in outcome.selected) for priority in PRIORITIES
         },
         soft_rule_violations={
             rule.label: rule_violation(outcome.selected, rule) for rule in config.category_rules if rule.is_soft
         } if has_solution else {},
+        preferred_included=sum(package.should_included for package in outcome.selected),
+        truck_weights=outcome.truck_weights,
+        conflicting_rules=outcome.conflicting_rules,
         num_selected=len(outcome.selected),
         solve_time_seconds=round(outcome.solve_time, 4),
         rules=outcome.rules,
@@ -133,9 +144,14 @@ def _solve_with_cpsat(packages: list[Package], config: ExperimentConfig, dataset
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         selected = [package for package in packages if solver.value(cargo.load[package.package_id])]
-    else:
-        selected = []
-    return _Outcome(solver.status_name(status), selected, solver.wall_time, cargo.rules)
+        truck_weights = [
+            sum(package.weight_kg for package in selected if solver.value(cargo.on_truck[package.package_id, truck]))
+            for truck in range(config.trucks)
+        ] if cargo.on_truck else []
+        return _Outcome(solver.status_name(status), selected, solver.wall_time, cargo.rules, truck_weights=truck_weights)
+
+    conflict = find_conflicting_rules(packages, config, dataset) if status == cp_model.INFEASIBLE else []
+    return _Outcome(solver.status_name(status), [], solver.wall_time, cargo.rules, conflicting_rules=conflict)
 
 
 def _solve_with_greedy(packages: list[Package], config: ExperimentConfig) -> _Outcome:
@@ -162,9 +178,14 @@ def _print_result(result: ExperimentResult) -> None:
     print(f"Solver status:  {result.status}")
     if result.skip_reason:
         print(f"Skip reason:    {result.skip_reason}")
-    print(f"Truck capacity: {result.capacity} kg")
+    if result.conflicting_rules:
+        print(f"Conflict:       {' + '.join(result.conflicting_rules)} cannot all hold")
+    print(f"Truck capacity: {result.capacity} kg" + (f" x {result.trucks} trucks" if result.trucks > 1 else ""))
+    if result.truck_weights:
+        print(f"Per truck:      {result.truck_weights} kg")
     print(f"Total weight:   {result.total_weight} kg")
     print(f"Total value:    {result.total_value}")
+    print(f"Must-include:   {result.preferred_included} loaded")
     print(f"Objective:      {'-' if result.objective_value is None else result.objective_value}")
     if result.soft_rule_violations:
         print("Violations:     " + ", ".join(f"{rule}: {n}" for rule, n in result.soft_rule_violations.items()))
@@ -184,9 +205,10 @@ def _save_result(config: ExperimentConfig, dataset: DatasetConfig, result: Exper
 
 
 SUMMARY_COLUMNS = [
-    "dataset", "experiment", "method", "status", "capacity", "should_include", "priority_weight",
-    "incompatible", "dependency", "category_rules", "num_selected", "total_weight", "total_value",
-    "objective_value", *PRIORITIES, "soft_rule_violations", "solve_time_seconds", "skip_reason",
+    "dataset", "experiment", "method", "status", "capacity", "trucks", "should_include", "should_include_penalty",
+    "priority_weight", "incompatible", "dependency", "category_rules", "num_selected", "preferred_included",
+    "total_weight", "total_value", "objective_value", *PRIORITIES, "soft_rule_violations", "conflicting_rules",
+    "solve_time_seconds", "skip_reason",
 ]
 
 
@@ -197,18 +219,22 @@ def _summary_row(config: ExperimentConfig, result: ExperimentResult) -> dict:
         "experiment": result.experiment,
         "method": result.method,
         "status": result.status,
-        "capacity": config.capacity,
+        "capacity": result.capacity,
+        "trucks": config.trucks,
         "should_include": str(config.should_include),
+        "should_include_penalty": config.should_include_penalty,
         "priority_weight": config.priority_weight,
         "incompatible": config.incompatible,
         "dependency": config.dependency,
         "category_rules": "; ".join(rule.label for rule in config.category_rules),
         "num_selected": result.num_selected,
+        "preferred_included": result.preferred_included,
         "total_weight": result.total_weight,
         "total_value": result.total_value,
         "objective_value": "" if result.objective_value is None else result.objective_value,
         **result.selected_by_priority,
         "soft_rule_violations": sum(result.soft_rule_violations.values()),
+        "conflicting_rules": " + ".join(result.conflicting_rules),
         "solve_time_seconds": result.solve_time_seconds,
         "skip_reason": result.skip_reason or "",
     }

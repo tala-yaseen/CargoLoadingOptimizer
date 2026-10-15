@@ -16,6 +16,8 @@ def unsupported_settings(config: ExperimentConfig) -> list[str]:
         unsupported.append("package dependencies")
     if config.category_rules:
         unsupported.append("category rules")
+    if config.trucks > 1:
+        unsupported.append("several trucks")
     return unsupported
 
 
@@ -28,7 +30,7 @@ def solve_greedy(packages: list[Package], config: ExperimentConfig) -> list[Pack
     )
 
     selected: list[Package] = []
-    remaining = config.capacity
+    remaining = config.capacity_kg(sum(package.weight_kg for package in packages))
     for package in by_ratio:
         if package.weight_kg <= remaining:
             selected.append(package)

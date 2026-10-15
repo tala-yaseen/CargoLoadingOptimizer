@@ -7,7 +7,8 @@ import pytest
 from cargo_optimizer.config import load_experiments
 
 YAML = """
-defaults: {method: cpsat, capacity: 1000, should_include: ignore, priority_weight: 0,
+defaults: {method: cpsat, capacity: 1000, trucks: 1, should_include: ignore, should_include_penalty: 0,
+           priority_weight: 0,
            incompatible: false, dependency: false, category_rules: []}
 experiments:
   base_a: {}
