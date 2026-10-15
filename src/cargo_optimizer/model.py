@@ -10,9 +10,9 @@ from cargo_optimizer.data import Package
 PRIORITY_POINTS = {"Critical": 3, "High": 2, "Normal": 1, "Low": 0}
 
 
-def package_score(package: Package, priority_weight: int) -> int:
-    """Objective contribution of a loaded package: v_i + w * p_i."""
-    return package.value + priority_weight * PRIORITY_POINTS[package.priority]
+def package_score(package: Package, config: ExperimentConfig) -> int:
+    """Objective contribution of a loaded package: value_weight * v_i + priority_weight * p_i."""
+    return config.value_weight * package.value + config.priority_weight * PRIORITY_POINTS[package.priority]
 
 
 def rule_violation(selected: list[Package], rule: CategoryRule) -> int:
@@ -29,7 +29,7 @@ def missing_must_include(selected: list[Package], packages: list[Package]) -> in
 
 def objective_value(selected: list[Package], packages: list[Package], config: ExperimentConfig) -> int:
     """The objective of a selection: total score minus the penalties of its soft rule violations."""
-    total_score = sum(package_score(package, config.priority_weight) for package in selected)
+    total_score = sum(package_score(package, config) for package in selected)
     penalties = sum(rule.penalty * rule_violation(selected, rule) for rule in config.category_rules if rule.is_soft)
     if config.should_include == ShouldInclude.SOFT:
         penalties += config.should_include_penalty * missing_must_include(selected, packages)
@@ -83,7 +83,7 @@ def build_model(packages: list[Package], config: ExperimentConfig, dataset: Data
     if rules["must_include (soft)"]:
         left_behind = sum(1 - load[package.package_id] for package in packages if package.should_included)
         penalties.append((config.should_include_penalty, left_behind))
-    _maximize_score(model, packages, load, config.priority_weight, penalties)
+    _maximize_score(model, packages, load, config, penalties)
 
     return CargoModel(model=model, load=load, rules=rules, hard_rules=hard_rules, on_truck=on_truck)
 
@@ -188,9 +188,9 @@ def _maximize_score(
     model: cp_model.CpModel,
     packages: list[Package],
     load: dict[str, cp_model.IntVar],
-    priority_weight: int,
+    config: ExperimentConfig,
     penalties: list[tuple[int, cp_model.LinearExprT]],
 ) -> None:
-    """Objective: max sum((v_i + w * p_i) * x_i) - sum(penalty * violation) over the soft rules."""
-    total_score = sum(package_score(package, priority_weight) * load[package.package_id] for package in packages)
+    """Objective: max sum(score_i * x_i) - sum(penalty * violation) over the soft rules (score = package_score)."""
+    total_score = sum(package_score(package, config) * load[package.package_id] for package in packages)
     model.maximize(total_score - sum(penalty * violation for penalty, violation in penalties))

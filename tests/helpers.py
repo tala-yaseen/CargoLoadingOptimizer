@@ -11,6 +11,7 @@ BASE_CONFIG = ExperimentConfig(
     trucks=1,
     should_include=ShouldInclude.IGNORE,
     should_include_penalty=0,
+    value_weight=1,
     priority_weight=0,
     incompatible=False,
     dependency=False,

@@ -8,7 +8,7 @@ from cargo_optimizer.config import load_experiments
 
 YAML = """
 defaults: {method: cpsat, capacity: 1000, trucks: 1, should_include: ignore, should_include_penalty: 0,
-           priority_weight: 0,
+           value_weight: 1, priority_weight: 0,
            incompatible: false, dependency: false, category_rules: []}
 experiments:
   base_a: {}
@@ -50,3 +50,14 @@ def test_sweep_with_unknown_base_is_rejected(tmp_path: Path):
 def test_sweep_values_are_validated_like_experiments(tmp_path: Path):
     with pytest.raises(ValueError, match="priority_weight"):
         _load(tmp_path, YAML.replace("priority_weight: [0, 50, 150]", "priority_weight: [0, -5]"))
+
+
+def test_sweep_values_can_be_labelled(tmp_path: Path):
+    text = YAML.replace(
+        "    priority_weight: [0, 50, 150]\n",
+        "    category_rules:\n      none: []\n      furniture_max: [{category: Furniture, at_most: 3}]\n",
+    )
+    configs = _load(tmp_path, text)
+
+    config = configs["grid__base_a__should_include=ignore__category_rules=furniture_max"]
+    assert [rule.label for rule in config.category_rules] == ["Furniture at_most 3 (hard)"]

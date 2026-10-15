@@ -206,7 +206,7 @@ def _save_result(config: ExperimentConfig, dataset: DatasetConfig, result: Exper
 
 SUMMARY_COLUMNS = [
     "dataset", "experiment", "method", "status", "capacity", "trucks", "should_include", "should_include_penalty",
-    "priority_weight", "incompatible", "dependency", "category_rules", "num_selected", "preferred_included",
+    "value_weight", "priority_weight", "incompatible", "dependency", "category_rules", "num_selected", "preferred_included",
     "total_weight", "total_value", "objective_value", *PRIORITIES, "soft_rule_violations", "conflicting_rules",
     "solve_time_seconds", "skip_reason",
 ]
@@ -223,6 +223,7 @@ def _summary_row(config: ExperimentConfig, result: ExperimentResult) -> dict:
         "trucks": config.trucks,
         "should_include": str(config.should_include),
         "should_include_penalty": config.should_include_penalty,
+        "value_weight": config.value_weight,
         "priority_weight": config.priority_weight,
         "incompatible": config.incompatible,
         "dependency": config.dependency,

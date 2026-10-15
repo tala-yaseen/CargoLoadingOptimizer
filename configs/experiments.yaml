@@ -23,6 +23,7 @@ defaults:
   trucks: 1                  # each truck has the capacity above; a package rides on one truck
   should_include: ignore     # ignore | hard | soft
   should_include_penalty: 0  # soft: cost per should_included package left behind
+  value_weight: 1            # objective weight of package value
   priority_weight: 0         # value of one priority step (Critical 3, High 2, Normal 1, Low 0)
   incompatible: false        # true: the dataset's incompatible pairs cannot both be loaded
   dependency: false          # true: a dependent package needs its required package
@@ -230,6 +231,18 @@ experiments:
     category_rules:
       - {category: Medical, at_least: 3, penalty: 500}
 
+  # Part 6: objective and penalty experiments (bases for the part6 sweeps below)
+  part6_base:                       # must-include as a preference, one 1,000 kg truck
+    should_include: soft
+
+  part6_medical_base:               # soft Medical minimum; run with --dataset example, small trucks
+    category_rules:
+      - {category: Medical, at_least: 2, penalty: 0}
+
+  part6_furniture_base:             # two competing preferences: must-include vs Furniture limit, 25,000 kg
+    should_include: soft
+    capacity: 25000
+
   # Capacity modes (used for scaling): fixed kg, scaled with the dataset, generous
   capacity_fixed:
     capacity: 1000           # same truck whatever the dataset size
@@ -248,3 +261,41 @@ sweeps:
     should_include: [ignore, hard]
     priority_weight: [0, 50, 150, 500, 2000]
     method: [cpsat, greedy]
+
+  # Part 6.1: value vs should-include vs priority weights (full and example datasets)
+  part6_weights:
+    base: [part6_base]
+    value_weight: [0, 1, 10]
+    should_include_penalty: [0, 100, 500, 2000]
+    priority_weight: [0, 50, 500]
+
+  # Part 6.2: soft category requirement vs value -- run with --dataset example
+  part6_medical:
+    base: [part6_medical_base]
+    capacity: [200, 250, 300]
+    category_rules:
+      medical_p0:   [{category: Medical, at_least: 2, penalty: 0}]
+      medical_p50:  [{category: Medical, at_least: 2, penalty: 50}]
+      medical_p100: [{category: Medical, at_least: 2, penalty: 100}]
+      medical_p150: [{category: Medical, at_least: 2, penalty: 150}]
+      medical_p200: [{category: Medical, at_least: 2, penalty: 200}]
+      medical_p500: [{category: Medical, at_least: 2, penalty: 500}]
+
+  # Part 6.3: two soft requirements competing -- must-include vs Furniture limit (full dataset)
+  part6_furniture:
+    base: [part6_furniture_base]
+    should_include_penalty: [100, 500, 2000]
+    category_rules:
+      furniture_p0:    [{category: Furniture, at_most: 3, penalty: 0}]
+      furniture_p100:  [{category: Furniture, at_most: 3, penalty: 100}]
+      furniture_p500:  [{category: Furniture, at_most: 3, penalty: 500}]
+      furniture_p2000: [{category: Furniture, at_most: 3, penalty: 2000}]
+
+  # Part 6.4: the same Medical minimum as soft (two penalties) vs hard
+  part6_medical_soft_vs_hard:
+    base: [part6_medical_base]
+    capacity: [150, 200, 250, 1000]
+    category_rules:
+      soft_p50:  [{category: Medical, at_least: 2, penalty: 50}]
+      soft_p150: [{category: Medical, at_least: 2, penalty: 150}]
+      hard:      [{category: Medical, at_least: 2}]
