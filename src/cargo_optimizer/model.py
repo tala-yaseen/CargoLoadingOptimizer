@@ -36,6 +36,17 @@ def objective_value(selected: list[Package], packages: list[Package], config: Ex
     return total_score - penalties
 
 
+def make_solver(config: ExperimentConfig) -> cp_model.CpSolver:
+    """A CP-SAT solver with the experiment's workers, time limit, seed, gap limit and presolve setting."""
+    solver = cp_model.CpSolver()
+    solver.parameters.num_workers = config.num_workers
+    solver.parameters.max_time_in_seconds = config.time_limit_seconds
+    solver.parameters.random_seed = config.random_seed
+    solver.parameters.relative_gap_limit = config.relative_gap_limit
+    solver.parameters.cp_model_presolve = config.presolve
+    return solver
+
+
 @dataclass
 class CargoModel:
     model: cp_model.CpModel
@@ -66,7 +77,9 @@ def build_model(packages: list[Package], config: ExperimentConfig, dataset: Data
     if config.trucks == 1:
         hard_rules["capacity"] = [_add_capacity(model, packages, load, capacity)]
     else:
-        on_truck, hard_rules["capacity"] = _add_trucks(model, packages, load, capacity, config.trucks)
+        on_truck, hard_rules["capacity"] = _add_trucks(
+            model, packages, load, capacity, config.trucks, config.symmetry_breaking
+        )
     if rules["must_include"]:
         hard_rules["must_include"] = _add_must_include(model, packages, load)
     if rules["incompatible"]:
@@ -97,11 +110,18 @@ def _add_capacity(
 
 
 def _add_trucks(
-    model: cp_model.CpModel, packages: list[Package], load: dict[str, cp_model.IntVar], capacity: int, trucks: int
+    model: cp_model.CpModel,
+    packages: list[Package],
+    load: dict[str, cp_model.IntVar],
+    capacity: int,
+    trucks: int,
+    symmetry_breaking: bool,
 ) -> tuple[dict[tuple[str, int], cp_model.IntVar], list[cp_model.Constraint]]:
     """Several trucks of the same capacity: each loaded package rides on exactly one truck.
 
     sum_t y_it = x_i for every package;  sum_i w_i * y_it <= C for every truck t.
+    Identical trucks make every load appear trucks! times (swap two trucks' cargo); symmetry breaking keeps
+    only the version where truck loads never increase: weight(t) >= weight(t + 1).
     """
     on_truck = {
         (package.package_id, truck): model.new_bool_var(f"on_truck_{package.package_id}_{truck}")
@@ -111,12 +131,15 @@ def _add_trucks(
     for package in packages:
         ride = sum(on_truck[package.package_id, truck] for truck in range(trucks))
         model.add(ride == load[package.package_id]).with_name(f"one_truck_{package.package_id}")
-    capacity_rules = [
-        model.add(
-            sum(package.weight_kg * on_truck[package.package_id, truck] for package in packages) <= capacity
-        ).with_name(f"capacity_truck_{truck}")
-        for truck in range(trucks)
+    truck_weight = [
+        sum(package.weight_kg * on_truck[package.package_id, truck] for package in packages) for truck in range(trucks)
     ]
+    capacity_rules = [
+        model.add(truck_weight[truck] <= capacity).with_name(f"capacity_truck_{truck}") for truck in range(trucks)
+    ]
+    if symmetry_breaking:
+        for truck in range(trucks - 1):
+            model.add(truck_weight[truck] >= truck_weight[truck + 1]).with_name(f"truck_order_{truck}")
     return on_truck, capacity_rules
 
 

@@ -4,7 +4,7 @@ from ortools.sat.python import cp_model
 
 from cargo_optimizer.config import DatasetConfig, ExperimentConfig
 from cargo_optimizer.data import Package
-from cargo_optimizer.model import build_model
+from cargo_optimizer.model import build_model, make_solver
 
 
 def find_conflicting_rules(packages: list[Package], config: ExperimentConfig, dataset: DatasetConfig) -> list[str]:
@@ -23,12 +23,18 @@ def find_conflicting_rules(packages: list[Package], config: ExperimentConfig, da
             constraint.only_enforce_if(switches[name])
 
     def conflict_among(names: list[str]) -> list[str] | None:
-        """The rule groups CP-SAT blames when only `names` are switched on, or None if that is feasible."""
+        """The rule groups CP-SAT blames when only `names` are switched on, or None if that is feasible.
+
+        If the time limit ends the search undecided, the groups are kept (we cannot prove they are not needed).
+        """
         cargo.model.clear_assumptions()
         cargo.model.add_assumptions([switches[name] for name in names])
-        solver = cp_model.CpSolver()
-        if solver.solve(cargo.model) != cp_model.INFEASIBLE:
+        solver = make_solver(config)
+        status = solver.solve(cargo.model)
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             return None
+        if status != cp_model.INFEASIBLE:
+            return names
         blamed = set(solver.sufficient_assumptions_for_infeasibility())
         return [name for name in names if switches[name].index in blamed]
 

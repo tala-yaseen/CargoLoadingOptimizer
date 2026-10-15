@@ -16,6 +16,12 @@ BASE_CONFIG = ExperimentConfig(
     incompatible=False,
     dependency=False,
     category_rules=(),
+    num_workers=8,
+    time_limit_seconds=60,
+    random_seed=0,
+    relative_gap_limit=0,
+    presolve=True,
+    symmetry_breaking=False,
 )
 
 NO_RULES = DatasetConfig(name="test", path="unused.csv", incompatible_pairs=(), dependencies=())
