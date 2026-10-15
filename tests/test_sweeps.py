@@ -8,7 +8,8 @@ from cargo_optimizer.config import load_experiments
 
 YAML = """
 defaults: {method: cpsat, capacity: 1000, trucks: 1, should_include: ignore, should_include_penalty: 0,
-           value_weight: 1, priority_weight: 0,
+           value_weight: 1, priority_weight: 0, num_workers: 8, time_limit_seconds: 60, random_seed: 0,
+           symmetry_breaking: false, relative_gap_limit: 0, presolve: true,
            incompatible: false, dependency: false, category_rules: []}
 experiments:
   base_a: {}

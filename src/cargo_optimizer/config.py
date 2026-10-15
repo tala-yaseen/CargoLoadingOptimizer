@@ -62,6 +62,12 @@ class ExperimentConfig:
     incompatible: bool
     dependency: bool
     category_rules: tuple[CategoryRule, ...]
+    num_workers: int             # CP-SAT search workers (parallel threads)
+    time_limit_seconds: float    # CP-SAT stops here and returns the best solution found so far
+    random_seed: int             # fixes CP-SAT's internal randomness so runs are repeatable
+    relative_gap_limit: float    # stop once the solution is proven within this share of the best (0 = optimal)
+    presolve: bool               # CP-SAT's preprocessing before the search (single-threaded)
+    symmetry_breaking: bool      # with several trucks: order trucks by load so swapped loads count once
 
     def capacity_kg(self, total_weight_kg: int) -> int:
         """Capacity in kg: as given, or the given percentage of all packages' total weight."""
@@ -177,11 +183,21 @@ def _build_config(name: str, settings: dict) -> ExperimentConfig:
         raise ValueError(f"experiment {name!r}: missing settings {sorted(missing)}")
 
     _check_capacity(name, settings["capacity"])
-    for setting, smallest in (("trucks", 1), ("should_include_penalty", 0), ("value_weight", 0), ("priority_weight", 0)):
+    whole_numbers = (
+        ("trucks", 1), ("should_include_penalty", 0), ("value_weight", 0), ("priority_weight", 0),
+        ("num_workers", 1), ("random_seed", 0),
+    )
+    for setting, smallest in whole_numbers:
         value = settings[setting]
         if not isinstance(value, int) or isinstance(value, bool) or value < smallest:
             raise ValueError(f"experiment {name!r}: {setting} must be a whole number >= {smallest}, got {value!r}")
-    for flag in ("incompatible", "dependency"):
+    time_limit = settings["time_limit_seconds"]
+    if not isinstance(time_limit, (int, float)) or isinstance(time_limit, bool) or time_limit <= 0:
+        raise ValueError(f"experiment {name!r}: time_limit_seconds must be a number > 0, got {time_limit!r}")
+    gap_limit = settings["relative_gap_limit"]
+    if not isinstance(gap_limit, (int, float)) or isinstance(gap_limit, bool) or not 0 <= gap_limit < 1:
+        raise ValueError(f"experiment {name!r}: relative_gap_limit must be between 0 and 1, got {gap_limit!r}")
+    for flag in ("incompatible", "dependency", "symmetry_breaking", "presolve"):
         if not isinstance(settings[flag], bool):
             raise ValueError(f"experiment {name!r}: {flag} must be true or false, got {settings[flag]!r}")
 
@@ -197,6 +213,12 @@ def _build_config(name: str, settings: dict) -> ExperimentConfig:
         incompatible=settings["incompatible"],
         dependency=settings["dependency"],
         category_rules=tuple(_parse_category_rule(name, rule) for rule in settings["category_rules"]),
+        num_workers=settings["num_workers"],
+        time_limit_seconds=settings["time_limit_seconds"],
+        random_seed=settings["random_seed"],
+        relative_gap_limit=settings["relative_gap_limit"],
+        presolve=settings["presolve"],
+        symmetry_breaking=settings["symmetry_breaking"],
     )
 
 

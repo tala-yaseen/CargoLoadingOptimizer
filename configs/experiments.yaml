@@ -28,6 +28,12 @@ defaults:
   incompatible: false        # true: the dataset's incompatible pairs cannot both be loaded
   dependency: false          # true: a dependent package needs its required package
   category_rules: []         # e.g. {category: Furniture, at_most: 3}; add penalty to make a rule soft
+  num_workers: 8             # CP-SAT search workers (this Mac: 10 performance + 4 efficiency cores)
+  time_limit_seconds: 60     # CP-SAT returns its best solution so far when time runs out
+  random_seed: 0             # repeatable runs
+  relative_gap_limit: 0      # stop once proven within this share of the best, e.g. 0.01 = 1% (0 = optimal)
+  presolve: true             # CP-SAT preprocessing (single-threaded); can dominate on large models
+  symmetry_breaking: false   # several trucks: order trucks by load
 
 experiments:
   part1: {}
@@ -243,6 +249,10 @@ experiments:
     should_include: soft
     capacity: 25000
 
+  # Part 8: trucks (full dataset): all 184 must-include packages on 1,000 kg trucks
+  part8_trucks_base:
+    should_include: hard
+
   # Capacity modes (used for scaling): fixed kg, scaled with the dataset, generous
   capacity_fixed:
     capacity: 1000           # same truck whatever the dataset size
@@ -299,3 +309,29 @@ sweeps:
       soft_p50:  [{category: Medical, at_least: 2, penalty: 50}]
       soft_p150: [{category: Medical, at_least: 2, penalty: 150}]
       hard:      [{category: Medical, at_least: 2}]
+
+  # Part 8: scaling. Sizes are datasets: run each sweep with --dataset random_1000 ... random_100000
+  part8_size:
+    base: [capacity_fixed, capacity_scaled, capacity_generous]
+
+  part8_workers:                 # run with --dataset random_50000 (scaled capacity: hard but solvable)
+    base: [capacity_scaled]
+    num_workers: [1, 2, 4, 8, 10, 14]
+
+  part8_time_limit:                 # run with --dataset random_50000 (scaled capacity: hard but solvable)
+    base: [capacity_scaled]
+    time_limit_seconds: [1, 5, 30]
+
+  part8_trucks:
+    base: [part8_trucks_base]
+    trucks: [20, 21, 25]
+    symmetry_breaking: [false, true]
+
+  part8_presolve:            # run with --dataset random_10000 / random_50000 / random_100000
+    base: [capacity_scaled, capacity_generous]
+    presolve: [true, false]
+
+  part8_gap_limit:           # full dataset: 25 trucks does not finish in 60 s, so a gap limit can stop it early
+    base: [part8_trucks_base]
+    trucks: [25]
+    relative_gap_limit: [0, 0.001, 0.01, 0.05]
