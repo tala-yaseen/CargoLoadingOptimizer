@@ -96,7 +96,7 @@ def test_violation_and_objective_match_the_formula():
     assert rule_violation([FOOD], rule) == 2
     assert rule_violation([MEDICAL], rule) == 1
     assert rule_violation(FURNITURE, CategoryRule("Furniture", "at_most", 3)) == 1
-    assert objective_value([FOOD], config) == 100 - 50 * 2
+    assert objective_value([FOOD], [FOOD, MEDICAL], config) == 100 - 50 * 2
 
 
 @pytest.mark.parametrize(

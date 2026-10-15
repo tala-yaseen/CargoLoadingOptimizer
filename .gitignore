@@ -17,3 +17,6 @@ __pycache__/
 # Experiment run outputs (kept locally, not committed)
 results/*
 !results/.gitkeep
+
+# Generated datasets (recreate with scripts/generate_dataset.py)
+data/random_*.csv

@@ -10,11 +10,19 @@ datasets:
     path: data/example_packages.csv        # the 10 packages from the brief
     incompatible_pairs: [[P02, P06]]
     dependencies: [[P07, P03]]             # P07 needs P03
+  # Random datasets for scaling (Part 8); create with: uv run python scripts/generate_dataset.py --size N
+  random_1000:   {path: data/random_1000.csv,   incompatible_pairs: [[P000002, P000006]], dependencies: [[P000007, P000003]]}
+  random_5000:   {path: data/random_5000.csv,   incompatible_pairs: [[P000002, P000006]], dependencies: [[P000007, P000003]]}
+  random_10000:  {path: data/random_10000.csv,  incompatible_pairs: [[P000002, P000006]], dependencies: [[P000007, P000003]]}
+  random_50000:  {path: data/random_50000.csv,  incompatible_pairs: [[P000002, P000006]], dependencies: [[P000007, P000003]]}
+  random_100000: {path: data/random_100000.csv, incompatible_pairs: [[P000002, P000006]], dependencies: [[P000007, P000003]]}
 
 defaults:
   method: cpsat              # cpsat | greedy
-  capacity: 1000             # kg
-  should_include: ignore     # ignore | hard
+  capacity: 1000             # kg, or a share of the dataset's total weight such as "25%"
+  trucks: 1                  # each truck has the capacity above; a package rides on one truck
+  should_include: ignore     # ignore | hard | soft
+  should_include_penalty: 0  # soft: cost per should_included package left behind
   priority_weight: 0         # value of one priority step (Critical 3, High 2, Normal 1, Low 0)
   incompatible: false        # true: the dataset's incompatible pairs cannot both be loaded
   dependency: false          # true: a dependent package needs its required package
@@ -153,6 +161,84 @@ experiments:
     category_rules:
       - {category: Furniture, at_most: 3}
       - {category: Medical, at_least: 2, penalty: 500}
+
+  # Part 5: infeasibility experiments -- A and B on the full dataset, C and D with --dataset example.
+  # Each scenario: one infeasible run, then one run per relaxation.
+  part5_A_infeasible:               # 184 must-include packages (19,332 kg) vs one 1,000 kg truck
+    should_include: hard
+
+  part5_A_relax_capacity:           # a truck big enough for all must-include packages
+    should_include: hard
+    capacity: 19332
+
+  part5_A_relax_trucks:             # 20 trucks of 1,000 kg (fewest that fit: 19 is infeasible)
+    should_include: hard
+    trucks: 20
+
+  part5_A_relax_soft:               # must-include becomes a preference: 500 per package left behind
+    should_include: soft
+    should_include_penalty: 500
+
+  part5_B_infeasible:               # weight fits, but 28 must-include Furniture packages vs at most 3
+    should_include: hard
+    capacity: 25000
+    category_rules:
+      - {category: Furniture, at_most: 3}
+
+  part5_B_relax_limit:              # Furniture limit raised to the 28 required
+    should_include: hard
+    capacity: 25000
+    category_rules:
+      - {category: Furniture, at_most: 28}
+
+  part5_B_relax_furniture_soft:     # Furniture limit becomes a preference: 500 per extra package
+    should_include: hard
+    capacity: 25000
+    category_rules:
+      - {category: Furniture, at_most: 3, penalty: 500}
+
+  part5_B_relax_must_include_soft:  # Furniture limit stays hard; must-include becomes a preference
+    should_include: soft
+    should_include_penalty: 500
+    capacity: 25000
+    category_rules:
+      - {category: Furniture, at_most: 3}
+
+  part5_C_infeasible:               # example: must-include packages need 660 kg vs 600 kg
+    should_include: hard
+    capacity: 600
+
+  part5_C_relax_capacity:
+    should_include: hard
+    capacity: 660
+
+  part5_C_relax_trucks:             # two 600 kg trucks
+    should_include: hard
+    capacity: 600
+    trucks: 2
+
+  part5_C_relax_soft:
+    should_include: soft
+    should_include_penalty: 500
+    capacity: 600
+
+  part5_D_infeasible:               # example: at least 3 Medical required, but only 2 exist
+    category_rules:
+      - {category: Medical, at_least: 3}
+
+  part5_D_relax_soft:               # the minimum becomes a preference: 500 per missing package
+    category_rules:
+      - {category: Medical, at_least: 3, penalty: 500}
+
+  # Capacity modes (used for scaling): fixed kg, scaled with the dataset, generous
+  capacity_fixed:
+    capacity: 1000           # same truck whatever the dataset size
+
+  capacity_scaled:
+    capacity: "0.5%"         # ~1,000 kg per 1,000 random packages
+
+  capacity_generous:
+    capacity: "25%"          # a quarter of all weight: many packages loaded, hardest search
 
 # Sweeps: every combination of the listed values, applied to each base experiment.
 # Run with e.g.:  run_experiment "all_cases*" --quiet [--dataset example]
